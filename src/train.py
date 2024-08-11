@@ -913,8 +913,9 @@ if torch.cuda.is_available():
     netG.cuda()
     netD.cuda()
 
-n_epochs = 1000
+n_epochs = 500
 best_ssim = 0  # To keep track of the best SSIM score
+best_psnr = 0  # To keep track of the best SSIM score
 
 if is_train:
 
@@ -1014,8 +1015,10 @@ if is_train:
         val_psnr /= len(val_dataloader)
         
         # Save the best model
-        if val_ssim > best_ssim:
+        if val_ssim > best_ssim and val_psnr>best_psnr:
             best_ssim = val_ssim
-            torch.save(netG.state_dict(), 'best_netG.pth')
+            best_psnr = val_psnr
+            model_save_path = 'best_netG_'+str(epoch)+'.pth'
+            torch.save(netG.state_dict(), model_save_path)
         
         print(f'Epoch [{epoch}/{n_epochs}] Validation SSIM: {val_ssim:.4f} PSNR: {val_psnr:.4f}')

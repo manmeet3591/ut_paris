@@ -783,9 +783,12 @@ print("Model loaded and ready for inference.")
 file_path = sys.argv[1] # '/mnt/washington/graphcast_2021_12_18_washington_36hr.nc'
 #file_path = '/mnt/washington/graphcast_2021_12_18_washington_36hr.nc'
 
-ds_gc = xr.open_dataset(file_path).isel(history=0).isel(time=slice(1,7))
-ds_gc['lon'] = ds_gc['lon']
+# 9 x 9 -> 240 x 240
+# 27 x 36 -> 720 x 960
 
+ds_gc = xr.open_dataset(file_path).isel(history=0).isel(time=slice(1,7)).isel(lat=slice(4,32)).isel(lon=slice(1,37))
+ds_gc['lon'] = ds_gc['lon']
+print(ds_gc)
 
 # print('Reading graphcast data: ', ds_gc.tp06.values)
 
@@ -797,17 +800,21 @@ ds_gc['lon'] = ds_gc['lon']
 start_time = ds_gc.time.values[0]
 end_time = ds_gc.time.values[-1]
 
+print(start_time, end_time)
+
 # # Load the AORC datasets
-ds_aorc_apcp = xr.open_dataset('/mnt/noaa_aorc_washington_APCP_surface_2017_2023.nc').sel(time=slice(start_time, end_time))
-ds_aorc_t2m   = xr.open_dataset('/mnt/noaa_aorc_washington_TMP_2maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
-ds_aorc_u10  = xr.open_dataset('/mnt/noaa_aorc_washington_UGRD_10maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
-ds_aorc_v10  = xr.open_dataset('/mnt/noaa_aorc_washington_VGRD_10maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
+# ds_aorc_apcp = xr.open_dataset('/mnt/noaa_aorc_washington_APCP_surface_2017_2023.nc').sel(time=slice(start_time, end_time))
+# ds_aorc_t2m   = xr.open_dataset('/mnt/noaa_aorc_washington_TMP_2maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
+# ds_aorc_u10  = xr.open_dataset('/mnt/noaa_aorc_washington_UGRD_10maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
+# ds_aorc_v10  = xr.open_dataset('/mnt/noaa_aorc_washington_VGRD_10maboveground_2017_2023.nc').sel(time=slice(start_time, end_time))
 
 # Define the grid boundaries and number of points
 min_lat, max_lat = ds_gc.lat.values[0], ds_gc.lat.values[-1]  # replace with your values
 min_lon, max_lon = ds_gc.lon.values[0], ds_gc.lon.values[-1]  # replace with your values
 
-n_lat, n_lon = ds_aorc_apcp.latitude.values.shape[0], ds_aorc_apcp.longitude.values.shape[0]  # number of grid points
+
+# sys.exit()
+n_lat, n_lon = 720, 960 # ds_aorc_apcp.latitude.values.shape[0], ds_aorc_apcp.longitude.values.shape[0]  # number of grid points
 
 # Generate the latitude and longitude values
 lat_values = np.linspace(min_lat, max_lat, n_lat)
@@ -852,12 +859,13 @@ input_tensor = torch.tensor(input_data_norm.to_array().values)
 print('Input tensor shape: ', input_tensor.shape)
 # print('Target tensor shape: ', target_tensor.shape)
 
-input_tensor_ = input_tensor.contiguous().view(1, 24, 240, 240)
+# sys.exit()
+input_tensor_ = input_tensor.contiguous().view(1, 24, 720, 960)
 
 
 print('Reshaped input tensor shape: ', input_tensor_.shape)
 
-original_shape_tensor = input_tensor_.reshape(4, 6, 240, 240)
+original_shape_tensor = input_tensor_.reshape(4, 6, 720, 960)
 print("Original Shape Tensor Shape:", original_shape_tensor.shape)  # Output: torch.Size([4, 6, 240, 240])
 
 # Check if the original tensor and the tensor reshaped back to the original shape are the same
@@ -874,15 +882,30 @@ print(predicted_sr)
 
 print(predicted_sr.shape)
 
-predicted_sr_ = predicted_sr.cpu().numpy().reshape(4, 31, 240, 240)
+predicted_sr_ = predicted_sr.cpu().numpy().reshape(4, 31, 720, 960)
 
 print(predicted_sr_.shape)
 
-predicted_sr_xr = xr.open_dataset('/mnt/paris_outputs/to_write.nc')
+start_time = ds_gc.time.values[0]
+
+# Create times every 1 hour for the next 31 hours
+time_values = start_time + np.arange(0, 31) * np.timedelta64(1, 'h')
+
+predicted_sr_xr = xr.Dataset({
+    'APCP_surface': xr.DataArray(
+                data   = predicted_sr_[0,:,:,:],   # enter data here
+                dims   = ['time', 'latitude', 'longitude'],
+                coords = {'time': time_values, 'latitude':lat_values, 'longitude': lon_values},
+                
+                )}
+    )
+
+
+# predicted_sr_xr = xr.open_dataset('/mnt/paris_outputs/to_write.nc')
 # sys.exit()
 # print(predicted_sr_xr)
 
-predicted_sr_xr['APCP_surface'] = (('time', 'latitude', 'longitude'), predicted_sr_[0,:,:,:])
+# predicted_sr_xr['APCP_surface'] = (('time', 'latitude', 'longitude'), predicted_sr_[0,:,:,:])
 predicted_sr_xr['TMP_2maboveground'] = (('time', 'latitude', 'longitude'), predicted_sr_[1,:,:,:])
 predicted_sr_xr['UGRD_10maboveground'] = (('time', 'latitude', 'longitude'), predicted_sr_[2,:,:,:])
 predicted_sr_xr['VGRD_10maboveground'] = (('time', 'latitude', 'longitude'), predicted_sr_[3,:,:,:])
@@ -890,10 +913,7 @@ predicted_sr_xr['latitude'] = lat_values
 predicted_sr_xr['longitude'] = lon_values
 
 
-start_time = ds_gc.time.values[0]
 
-# Create times every 1 hour for the next 31 hours
-time_values = start_time + np.arange(0, 31) * np.timedelta64(1, 'h')
 predicted_sr_xr['time'] = time_values
 # print(ds_gc.time.values)
 
